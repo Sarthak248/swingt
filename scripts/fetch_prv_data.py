@@ -3,8 +3,13 @@ import pandas as pd
 import yaml
 from concurrent.futures import ThreadPoolExecutor
 import warnings
+from google.cloud import bigquery
+from dotenv import load_dotenv
+import os
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
+
+load_dotenv()
 
 def fetch_ticker(ticker):
     try:
@@ -35,7 +40,8 @@ def fetch_ticker(ticker):
         print(f"Failed to fetch {ticker}: {e}")
         return None
 
-def fetch_august_data_parallel():
+
+def fetch_data_parallel():
     with open("../config/config.yaml") as f:
         config = yaml.safe_load(f)
     tickers = config["tickers"]
@@ -54,11 +60,44 @@ def fetch_august_data_parallel():
         all_clean = [df[[c for c in required_cols if c in df.columns]] for df in all_rows]
         final_df = pd.concat(all_clean, ignore_index=True)
         final_df.columns.name = None
-        print(final_df.head(400))
+        print(final_df.head(40))
         return final_df
     else:
         print("No data fetched.")
         return pd.DataFrame()
 
+def push_to_bigquery(df):
+    project_id = os.getenv("GCP_PROJECT_ID")
+    dataset_id = os.getenv("BIGQUERY_DATASET")
+    table_id = os.getenv("BIGQUERY_TABLE")
+
+    client = bigquery.Client(project=project_id)
+    table_ref = f"{project_id}.{dataset_id}.{table_id}"
+
+    job_config = bigquery.LoadJobConfig(
+        write_disposition="WRITE_APPEND",
+        schema=[
+            bigquery.SchemaField("Date", "DATE"),
+            bigquery.SchemaField("Open", "FLOAT"),
+            bigquery.SchemaField("High", "FLOAT"),
+            bigquery.SchemaField("Low", "FLOAT"),
+            bigquery.SchemaField("Close", "FLOAT"),
+            bigquery.SchemaField("Volume", "INTEGER"),
+            bigquery.SchemaField("Ticker", "STRING"),
+        ],
+    )
+
+    df["Date"] = pd.to_datetime(df["Date"]).dt.date
+
+    load_job = client.load_table_from_dataframe(
+        df, table_ref, job_config=job_config
+    )
+    load_job.result()
+
+    print(f"\Loaded {len(df)} rows into {table_ref}")
+
+
 if __name__ == "__main__":
-    fetch_august_data_parallel()
+    df = fetch_data_parallel()
+    # if not df.empty:
+    #     push_to_bigquery(df)
