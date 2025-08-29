@@ -1,7 +1,6 @@
 import yfinance as yf
 import pandas as pd
 import yaml
-from google.cloud import bigquery
 from concurrent.futures import ThreadPoolExecutor
 import warnings
 
@@ -21,11 +20,19 @@ def fetch_ticker(ticker):
             return None
 
         df.reset_index(inplace=True)
-        df.columns.name = None
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [col[0] if col[0] != "" else col[1] for col in df.columns]
+
+        df.columns = [c.strip().capitalize() for c in df.columns]
+
+        df = df.loc[:, ~df.columns.duplicated()]
+
         df["Ticker"] = ticker
+        df.columns.name = None
         return df
+
     except Exception as e:
-        print(f"❌ Failed to fetch {ticker}: {e}")
+        print(f"Failed to fetch {ticker}: {e}")
         return None
 
 def fetch_august_data_parallel():
@@ -43,7 +50,10 @@ def fetch_august_data_parallel():
             all_rows.append(df)
 
     if all_rows:
-        final_df = pd.concat(all_rows, ignore_index=True)
+        required_cols = ["Date", "Open", "High", "Low", "Close", "Volume", "Ticker"]
+        all_clean = [df[[c for c in required_cols if c in df.columns]] for df in all_rows]
+        final_df = pd.concat(all_clean, ignore_index=True)
+        final_df.columns.name = None
         print(final_df.head(400))
         return final_df
     else:
