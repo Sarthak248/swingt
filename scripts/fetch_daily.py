@@ -6,33 +6,39 @@ import warnings
 from google.cloud import bigquery
 from dotenv import load_dotenv
 import os
+from datetime import date, timedelta
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
-
 load_dotenv()
 
-def fetch_ticker(ticker):
+
+def fetch_today_ticker(ticker):
     try:
+        today = date.today()
+        tomorrow = today + timedelta(days=1)
+
         df = yf.download(
             ticker,
-            start="2025-08-01",
-            end="2025-09-01",
+            start=str(today),
+            end=str(tomorrow),
             progress=False,
-            auto_adjust=True
+            auto_adjust=True,
+            interval="1d"
         )
         if df.empty:
-            print(f"No data for {ticker}")
+            print(f"No data for {ticker} on {today}")
             return None
 
         df.reset_index(inplace=True)
+
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = [col[0] if col[0] != "" else col[1] for col in df.columns]
 
         df.columns = [c.strip().capitalize() for c in df.columns]
-
         df = df.loc[:, ~df.columns.duplicated()]
 
         df["Ticker"] = ticker
+        df["Date"] = pd.to_datetime(df["Date"]).dt.date
         df.columns.name = None
         return df
 
@@ -41,18 +47,15 @@ def fetch_ticker(ticker):
         return None
 
 
-def fetch_data_parallel():
-    base_dir = os.path.dirname(os.path.abspath(__file__))  # directory of script
-    config_path = os.path.join(base_dir, "../config/config.yaml")
-
-    with open(config_path) as f:
+def fetch_today_data_parallel():
+    with open("../config/config.yaml") as f:
         config = yaml.safe_load(f)
     tickers = config["tickers"]
 
     all_rows = []
 
     with ThreadPoolExecutor(max_workers=10) as executor:
-        results = executor.map(fetch_ticker, tickers)
+        results = executor.map(fetch_today_ticker, tickers)
 
     for df in results:
         if df is not None:
@@ -66,8 +69,9 @@ def fetch_data_parallel():
         print(final_df.head(40))
         return final_df
     else:
-        print("No data fetched.")
+        print("No data fetched today.")
         return pd.DataFrame()
+
 
 def push_to_bigquery(df):
     project_id = os.getenv("GCP_PROJECT_ID")
@@ -90,17 +94,13 @@ def push_to_bigquery(df):
         ],
     )
 
-    df["Date"] = pd.to_datetime(df["Date"]).dt.date
-
-    load_job = client.load_table_from_dataframe(
-        df, table_ref, job_config=job_config
-    )
+    load_job = client.load_table_from_dataframe(df, table_ref, job_config=job_config)
     load_job.result()
 
-    print(f"\Loaded {len(df)} rows into {table_ref}")
+    print(f"Loaded {len(df)} rows into {table_ref}")
 
 
 if __name__ == "__main__":
-    df = fetch_data_parallel()
+    df = fetch_today_data_parallel()
     # if not df.empty:
     #     push_to_bigquery(df)
