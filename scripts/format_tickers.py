@@ -1,6 +1,6 @@
 def format_tickers(raw_ticker_string: str):
     tickers = [line.strip() for line in raw_ticker_string.splitlines() if line.strip()]
-    
+    #
     yaml_formatted = "tickers:\n" + "\n".join([f"  - {t}" for t in tickers])
     return yaml_formatted
 

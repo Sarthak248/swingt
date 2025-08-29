@@ -12,7 +12,7 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 load_dotenv()
 
 
-def fetch_today_ticker(ticker):
+def fetch_today_ticker(ticker):#
     try:
         today = date.today()
         tomorrow = today + timedelta(days=1)
