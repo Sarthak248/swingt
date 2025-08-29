@@ -78,5 +78,5 @@ if __name__ == "__main__":
     print("This function will calculate deltas between 2 dates for ALL tickers")
     date1 = input("Enter date 1:")
     date2 = input("Enter date 2:")
-    res = get_etf_delta_all("IVW", date1, date2, limit=100)
+    res = get_etf_delta_all("IVW", date1, date2, limit=510)
     print(res.to_string(index=False))
