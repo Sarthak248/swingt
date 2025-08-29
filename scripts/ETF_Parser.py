@@ -30,18 +30,15 @@ def load_and_format_etf_csv(file_path):
         df[col] = pd.to_numeric(df[col], errors='coerce')
 
     df["Accrual_Date"] = pd.to_datetime(df["Date"], errors='coerce').dt.date
-    df = df.drop(columns=["Date"])
     df.columns = [c.strip().replace(" ", "_") for c in df.columns]
     return df
 
 file_path = "./data/holdings/ivw.csv"
 df = load_and_format_etf_csv(file_path)
 
-df["Date"] = (datetime.now() - pd.Timedelta(days=1)).date()
-
 df.columns = [c.strip().replace(" ", "_") for c in df.columns]
 
-print(df.head(100))
+print(df.head(1000))
 
 client = bigquery.Client(project=GCP_PROJECT_ID)
 table_id = f"{GCP_PROJECT_ID}.{BIGQUERY_DATASET}.{ETF_NAME}"
