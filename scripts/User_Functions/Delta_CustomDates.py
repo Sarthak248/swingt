@@ -1,6 +1,6 @@
-'''
-For an ETF, find out delta for a given ticker between 2 dates
-'''
+"""
+For an ETF, find out delta for ALL tickers between 2 dates
+"""
 
 from google.cloud import bigquery
 import pandas as pd
@@ -14,58 +14,69 @@ GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID")
 BIGQUERY_DATASET = os.getenv("BIGQUERY_DATASET")
 BIGQUERY_TABLE = os.getenv("BIGQUERY_TABLE")
 
-def get_etf_quantity_delta(table: str, ticker: str, start_date: str, end_date: str):
-    
+
+def get_etf_delta_all(table: str, start_date: str, end_date: str, limit: int = 100):
     client = bigquery.Client(project=GCP_PROJECT_ID)
     table_id = f"{GCP_PROJECT_ID}.{BIGQUERY_DATASET}.{table}"
 
     query = f"""
-        SELECT Date, Quantity
-        FROM `{table_id}`
-        WHERE Ticker = @ticker
-        AND Date IN (@start_date, @end_date)
-        ORDER BY Date
+        WITH filtered AS (
+            SELECT
+                Ticker,
+                Date,
+                Quantity,
+                `Market_Value`
+            FROM `{table_id}`
+            WHERE Date IN (@start_date, @end_date)
+        ),
+        ranked AS (
+            SELECT
+                Ticker,
+                Date,
+                Quantity,
+                `Market_Value`,
+                ROW_NUMBER() OVER (PARTITION BY Ticker ORDER BY PARSE_DATE('%d-%m-%Y', Date)) AS rn
+            FROM filtered
+        ),
+        paired AS (
+            SELECT
+                f1.Ticker,
+                f1.`Market_Value` AS start_mv,
+                f1.Quantity AS start_qty,
+                f2.`Market_Value` AS end_mv,
+                f2.Quantity AS end_qty
+            FROM ranked f1
+            JOIN ranked f2
+              ON f1.Ticker = f2.Ticker
+             AND f1.rn = 1
+             AND f2.rn = 2
+        )
+        SELECT
+            Ticker,
+            end_mv AS MarketValue,
+            end_qty AS Quantity,
+            (end_qty - start_qty) AS Delta
+        FROM paired
+        ORDER BY MarketValue DESC
+        LIMIT @limit
     """
 
     job_config = bigquery.QueryJobConfig(
         query_parameters=[
-            bigquery.ScalarQueryParameter("ticker", "STRING", ticker),
             bigquery.ScalarQueryParameter("start_date", "STRING", start_date),
             bigquery.ScalarQueryParameter("end_date", "STRING", end_date),
+            bigquery.ScalarQueryParameter("limit", "INT64", limit),
         ]
     )
 
     df = client.query(query, job_config=job_config).to_dataframe()
 
-    if df.empty or df.shape[0] < 2:
-        return {"error": f"No data found for {ticker} between {start_date} and {end_date}"}
+    return df
 
-    df = df.sort_values("Date")
-    start_qty = float(df.iloc[0]["Quantity"])
-    end_qty = float(df.iloc[-1]["Quantity"])
-    delta = end_qty - start_qty
-
-    action = "No Change"
-    if delta > 0:
-        action = "Bought"
-    elif delta < 0:
-        action = "Sold"
-
-    return {
-        "ticker": ticker,
-        "start_date": start_date,
-        "end_date": end_date,
-        "start_quantity": start_qty,
-        "end_quantity": end_qty,
-        "delta": delta,
-        "action": action,
-    }
 
 if __name__ == "__main__":
-    print("This function will calculate delta between 2 dates for a given ticker")
+    print("This function will calculate deltas between 2 dates for ALL tickers")
     date1 = input("Enter date 1:")
     date2 = input("Enter date 2:")
-    ticker = input("Enter ticker:")
-    res = get_etf_quantity_delta("IVW",ticker,date1,date2)
-    print("res")
-    print(res)
+    res = get_etf_delta_all("IVW", date1, date2, limit=100)
+    print(res.to_string(index=False))
